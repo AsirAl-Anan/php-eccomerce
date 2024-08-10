@@ -1,7 +1,33 @@
 *{
     padding: 0;
     margin: 0;
-}
-body{
-    background-color: white;
+    margin: 0;
+
+
+  
+
+
+  /* Ensure dropdown visibility */
+  details[open] > summary ~ * {
+    display: block !important;
+  }
+
+  summary {
+    list-style: none;
+    cursor: pointer;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  details > summary::after {
+    content: "▼";
+    float: right;
+    margin-left: 10px;
+  }
+
+  details[open] > summary::after {
+    content: "▲";
+  }
 }
