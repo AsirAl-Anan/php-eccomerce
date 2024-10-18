@@ -1,0 +1,468 @@
+<?php
+// Start the session at the beginning of your PHP file
+session_start();
+
+// Function to check if user is logged in
+function isLoggedIn() {
+    return isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true;
+}
+
+require_once '../config/config.php';
+require_once '../admin/display_products.php';
+
+// Check if user is logged in
+if (!isLoggedIn()) {
+    header("Location: ../loginsystem/login.php");
+    exit();
+}
+
+$user_id = $_SESSION['id'];
+
+// Function to check if an order is within 30 minutes
+function isOrderCancellable($order_time) {
+    $current_time = time();
+    $order_timestamp = strtotime($order_time);
+    $time_diff = ($current_time - $order_timestamp) / 60; // difference in minutes
+    return $time_diff <= 30;
+}
+
+// Handle order cancellation
+if (isset($_POST['cancel_order'])) {
+    $order_id = $_POST['order_id'];
+    
+    // Check if the order is within 30 minutes
+    $stmt = $conn->prepare("SELECT created_at FROM orders WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $order_id, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $order = $result->fetch_assoc();
+    
+    if ($order && isOrderCancellable($order['created_at'])) {
+        // Disable foreign key checks
+        $conn->query("SET FOREIGN_KEY_CHECKS=0");
+
+        // Delete from order_items first
+        $stmt = $conn->prepare("DELETE FROM order_items WHERE order_id = ?");
+        $stmt->bind_param("i", $order_id);
+        $stmt->execute();
+
+        // Then delete from orders
+        $stmt = $conn->prepare("DELETE FROM orders WHERE id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $order_id, $user_id);
+        $stmt->execute();
+
+        // Re-enable foreign key checks
+        $conn->query("SET FOREIGN_KEY_CHECKS=1");
+        
+        if ($stmt->affected_rows > 0) {
+            $success_message = "Order #" . $order_id . " has been cancelled successfully.";
+        } else {
+            $error_message = "Failed to cancel the order. Please try again.";
+        }
+    } else {
+        $error_message = "Orders can only be cancelled within 30 minutes of placement.";
+    }
+}
+
+// Fetch all orders for the user
+$stmt = $conn->prepare("SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$orders = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+// Fetch specific order details if order_id is provided
+if (isset($_GET['order_id'])) {
+    $order_id = $_GET['order_id'];
+    $stmt = $conn->prepare("SELECT o.*, oi.product_id, oi.quantity, oi.price, p.name FROM orders o JOIN order_items oi ON o.id = oi.order_id JOIN products p ON oi.product_id = p.id WHERE o.id = ? AND o.user_id = ?");
+    $stmt->bind_param("ii", $order_id, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $order_details = $result->fetch_all(MYSQLI_ASSOC);
+    
+    if (empty($order_details)) {
+        $error_message = "No details found for Order #" . htmlspecialchars($order_id);
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>E-commerce Site</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+      integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    />
+    <link
+      href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css"
+      rel="stylesheet"
+      type="text/css"
+    />
+    <link rel="stylesheet" href="css/index.css" />
+    <script src="js/script.js"></script>
+  
+    
+  </head>
+  <body class="bg-white text-black">
+    <!-- navigation bar -->
+     <!-- navigation bar -->
+<div class="navbar text-black sticky top-0 z-50 !bg-white !text-black">
+  <div class="navbar-start">
+    <!-- responsive nav-bar -->
+    <div class="dropdown">
+      <div tabindex="0" role="button" class="btn btn-ghost lg:hidden">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="h-5 w-5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          title="menu"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M4 6h16M4 12h8m-8 6h16"
+          />
+        </svg>
+      </div>
+      <ul
+        tabindex="0"
+        class="menu menu-sm dropdown-content bg-white text-black rounded-box z-[1] mt-3 w-52 p-2 shadow"
+      >
+        <li><a  class="hover:underline" href="index.php">Home</a></li>
+        <li><a href="index.php#featured" class="hover:underline">New & featured</a></li>
+        <li>
+          <a href="men.php" class="hover:underline">Men</a>
+         >
+        </li>
+        <li>
+          <a class="hover:underline" href="women.php">Women</a>
+         
+        </li>
+        <li><a href="kids.php" class="hover:underline" href="kids.php">Kids</a></li>
+     
+        <li><a href="about.php" class="hover:underline" >About & FAQ's</a></li>
+      </ul>
+    </div>
+    <!-- responsive nav-bar ends -->
+    <a class="btn btn-ghost text-xl hover:underline">Urban Store</a>
+  </div>
+  <div class="navbar-center hidden lg:flex">
+    <ul class="menu menu-horizontal px-1 z-20">
+      <li><a href="index.php" class="hover:underline">Home</a></li>
+      <li><a href="index.php#featured" class="hover:underline">New & featured</a></li>
+      <li>
+       <a href="men.php">Men</a>
+      <li>
+      <a href="women.php">Women</a>
+      </li>
+      <li><a class="hover:underline"  href="kids.php">Kids</a></li>
+
+      <li><a href="about.php" class="hover:underline"  href="about.php">About & FAQ's</a></li>
+    </ul>
+  </div>
+  <div class="navbar-end">
+
+  <div class="dropdown">
+  <div tabindex="0" role="button" class="btn !bg-gray-100 border-none !text-black m-1"><i class="fas fa-search"></i></div>
+  <ul tabindex="0" class="dropdown-content menu !bg-white-500 rounded-box z-[1] w-70 p-2 shadow absolute left-1/2 transform -translate-x-1/2 mt-2">
+
+  <form id="search-form" class="input input-bordered flex items-center gap-2">
+  <input type="text" id="search-input" class="grow text-white" placeholder="Search" />
+  <button type="submit" class="bg-transparent border-0 p-0 cursor-pointer">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      class="h-4 w-4 opacity-70">
+      <path
+        fill-rule="evenodd"
+        d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+        clip-rule="evenodd" />
+    </svg>
+  </button>
+</form>
+<div id="search-results"></div>
+  </ul>
+</div>
+
+<!-- cart -->
+<button onclick="openCartDrawer()" class="relative m-5">
+    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+    </svg>
+    <span id="cart-count" class="absolute top-0 right-0 transform translate-x-1/2 -translate-y-1/2 bg-red-500 text-white rounded-full px-1.5 py-0.5 text-xs leading-none">0</span>
+</button>
+    
+  </div>
+  <div class="dropdown dropdown-end ">
+    <div tabindex="0" role="button" class="btn btn-ghost btn-circle avatar">
+    <div class="w-10 h-10 rounded-full overflow-hidden">
+    <?php
+$default_avatar = '../uploads/default_avatar.jpg'; // Use an absolute path
+$profile_picture = isset($_SESSION['profile_picture']) && !empty($_SESSION['profile_picture']) 
+    ? $_SESSION['profile_picture'] 
+    : $default_avatar;
+
+if (!file_exists($profile_picture)) {
+    $profile_picture = $default_avatar;
+}
+
+echo '<img src="' . htmlspecialchars($profile_picture) . '" alt="Profile Picture" class="w-full h-full object-cover" />';
+?>
+    </div>
+    </div>
+    <ul
+      tabindex="0"
+      class="menu menu-sm dropdown-content bg-gray-400 rounded-box z-[1] mt-3 w-52 p-2 shadow"
+    >
+      <?php if (isLoggedIn()): ?>
+       
+        <li><a class="hover:underline" href="profile.php">Profile</a></li>
+        <li><a class="hover:underline" href="../loginsystem/logout.php">Logout</a></li>
+      <?php else: ?>
+        <li><a class="hover:underline" href="../loginsystem/registration.php">Registration</a></li>
+        <li><class="hover:underline" href="../loginsystem/login.php">Login</></li>
+        <li><a href="../admin/admin_login.php" class="hover:underline">Admin Login</a></li>
+      <?php endif; ?>
+    </ul>
+  </div>
+
+</div>
+
+    <!-- navigation bar ends -->
+
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold mb-6">Order Tracking</h1>
+        
+        <?php if (isset($success_message)): ?>
+            <div class="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative mb-4" role="alert">
+                <span class="block sm:inline"><?php echo $success_message; ?></span>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($error_message)): ?>
+            <div class="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+                <span class="block sm:inline"><?php echo $error_message; ?></span>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($order_details) && !empty($order_details)): ?>
+            <div class="bg-white shadow-md rounded px-8 pt-6 pb-8 mb-4">
+                <h2 class="text-2xl font-bold mb-4">Order #<?php echo htmlspecialchars($order_details[0]['id'] ?? ''); ?></h2>
+                <p>Status: <?php echo htmlspecialchars($order_details[0]['status'] ?? 'Unknown'); ?></p>
+                <p>Date: <?php echo htmlspecialchars($order_details[0]['created_at'] ?? 'Unknown'); ?></p>
+                <p>Total: $<?php echo number_format($order_details[0]['total_amount'] ?? 0, 2); ?></p>
+                <h3 class="text-xl font-bold mt-4 mb-2">Items:</h3>
+                <?php foreach ($order_details as $item): ?>
+                    <div class="flex justify-between mb-2">
+                        <span><?php echo htmlspecialchars($item['name'] ?? 'Unknown'); ?> x <?php echo htmlspecialchars($item['quantity'] ?? 0); ?></span>
+                        <span>$<?php echo number_format(($item['price'] ?? 0) * ($item['quantity'] ?? 0), 2); ?></span>
+                    </div>
+                <?php endforeach; ?>
+                
+                <?php if (isOrderCancellable($order_details[0]['created_at'])): ?>
+                    <form method="post" class="mt-4">
+                        <input type="hidden" name="order_id" value="<?php echo $order_details[0]['id']; ?>">
+                        <button type="submit" name="cancel_order" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                            Cancel Order
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <p class="mt-4 text-gray-600">This order can no longer be cancelled.</p>
+                <?php endif; ?>
+            </div>
+        <?php elseif (isset($_GET['order_id'])): ?>
+            <p>No details found for this order.</p>
+        <?php endif; ?>
+
+        <h2 class="text-2xl font-bold mb-4">Your Orders</h2>
+        <?php if (empty($orders)): ?>
+            <p>You have no orders yet.</p>
+        <?php else: ?>
+            <div class="grid gap-4">
+                <?php foreach ($orders as $order): ?>
+                    <div class="bg-white shadow-md rounded px-4 py-2 flex justify-between items-center">
+                        <a href="?order_id=<?php echo $order['id']; ?>" class="flex-grow hover:underline">
+                            <span>Order #<?php echo $order['id']; ?></span>
+                            <span class="ml-4"><?php echo $order['status']; ?></span>
+                            <span class="ml-4">$<?php echo number_format($order['total_amount'], 2); ?></span>
+                            <span class="ml-4"><?php echo $order['created_at']; ?></span>
+                        </a>
+                        <?php if (isOrderCancellable($order['created_at'])): ?>
+                            <form method="post" class="ml-4">
+                                <input type="hidden" name="order_id" value="<?php echo $order['id']; ?>">
+                                <button type="submit" name="cancel_order" class="bg-red-500 hover:bg-red-700 text-white font-bold py-1 px-2 rounded text-sm">
+                                    Cancel
+                                </button>
+                            </form>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
+<!-- drawer -->
+    <div id="cartDrawer" class="fixed inset-y-0 right-0 w-96 bg-white shadow-xl transform translate-x-full transition-transform duration-300 ease-in-out z-50">
+    <div class="p-6">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-2xl font-bold">Your Cart</h2>
+            <button onclick="closeCartDrawer()" class="text-gray-500 hover:text-gray-700">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <div id="cartContents"></div>
+    </div>
+</div>
+
+    <!-- footer -->
+    <?php include('footer.php'); ?>
+    <!-- footer ends -->
+    <script>document.getElementById('search-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const query = document.getElementById('search-input').value;
+  performSearch(query);
+});
+
+function performSearch(query) {
+  fetch(`search.php?q=${encodeURIComponent(query)}`)
+    .then(response => response.json())
+    .then(data => displayResults(data))
+    .catch(error => console.error('Error:', error));
+}
+
+function displayResults(results) {
+  const resultsContainer = document.getElementById('search-results');
+  resultsContainer.innerHTML = '';
+  
+  if (results.length === 0) {
+    resultsContainer.innerHTML = '<p class="text-white">No results found.</p>';
+    return;
+  }
+  
+  const ul = document.createElement('ul');
+  ul.className = 'list-none p-0';
+  results.forEach(product => {
+    const li = document.createElement('li');
+    li.className = 'mb-2';
+    li.innerHTML = `<a href="product.php?id=${product.id}" class="text-white hover:underline">${product.name} - $${product.price}</a>`;
+    ul.appendChild(li);
+  });
+  
+  resultsContainer.appendChild(ul);
+
+}
+function openCartDrawer() {
+    document.getElementById('cartDrawer').classList.remove('translate-x-full');
+    loadCartContents();
+}
+
+function closeCartDrawer() {
+    document.getElementById('cartDrawer').classList.add('translate-x-full');
+}
+
+function loadCartContents() {
+    fetch('../admin/cart.php?action=get_cart_data')
+        .then(response => response.json())
+        .then(data => {
+            const cartContents = document.getElementById('cartContents');
+            if (data.cartItems.length === 0) {
+                cartContents.innerHTML = '<p class="text-center py-4">Your cart is empty.</p>';
+            } else {
+                let html = '<div class="space-y-4">';
+                data.cartItems.forEach(item => {
+                    html += `
+                        <div class="flex items-center justify-between border-b pb-2">
+                            <div class="flex items-center space-x-4">
+                                <img src="../uploads/${item.image_file || 'default.jpg'}" alt="${item.name}" class="w-16 h-16 object-cover">
+                                <div>
+                                    <h3 class="font-semibold">${item.name}</h3>
+                                    <p class="text-gray-600">$${parseFloat(item.price).toFixed(2)}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <button onclick="updateQuantity(${item.id}, -1)" class="bg-gray-200 px-2 py-1 rounded">-</button>
+                                <span>${item.quantity}</span>
+                                <button onclick="updateQuantity(${item.id}, 1)" class="bg-gray-200 px-2 py-1 rounded">+</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                html += `
+                    <div class="mt-4 space-y-2">
+                        <div class="flex justify-between">
+                            <span class="font-semibold">Subtotal:</span>
+                            <span>$${parseFloat(data.total).toFixed(2)}</span>
+                        </div>
+                        <button onclick="checkout()" class="w-full bg-red-600 text-white py-2 rounded font-semibold">Checkout</button>
+                    </div>
+                `;
+                cartContents.innerHTML = html;
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('cartContents').innerHTML = '<p class="text-center py-4">Error loading cart contents.</p>';
+        });
+}
+
+function updateQuantity(itemId, change) {
+    fetch('../admin/update_cart_quantity.php', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `item_id=${itemId}&change=${change}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            loadCartContents(); // Reload cart contents
+            updateCartCount(); // Update the cart count
+        } else {
+            alert('Failed to update quantity: ' + data.message);
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+function checkout() {
+    // Implement checkout functionality
+    alert('Checkout functionality to be implemented');
+}
+function updateCartCount() {
+    fetch('../admin/get_cart_count.php')
+        .then(response => response.text()) // Changed to text()
+        .then(count => {
+            document.getElementById('cart-count').textContent = count;
+        })
+        .catch(error => console.error('Error:', error));
+}
+
+// Call this function when the page loads and after adding/removing items from the cart
+document.addEventListener('DOMContentLoaded', updateCartCount);
+// Call this function when the page loads and after adding/removing items from the cart
+document.addEventListener('DOMContentLoaded', updateCartCount);
+
+// Load cart count on page load
+document.addEventListener('DOMContentLoaded', function() {
+    fetch('../admin/get_cart_count.php')
+        .then(response => response.text())
+        .then(count => {
+            document.getElementById('cart-count').textContent = count;
+        })
+        .catch(error => console.error('Error:', error));
+});
+</script>
+  </body>
+</html>
